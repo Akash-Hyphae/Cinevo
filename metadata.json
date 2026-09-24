@@ -1,0 +1,6 @@
+{
+  "name": "Cinevo - Cinema Show & Seat Booking Platform",
+  "description": "Next-generation cinematic movie discovery and show ticket booking platform with real-time atomic seat locking, interactive theatre layouts, and instant digital tickets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
