@@ -88,6 +88,8 @@ export const adminAPI = {
   createShow: (data) => api.post('/admin/shows', data),
   deleteShow: (id) => api.delete(`/admin/shows/${id}`),
   testConcurrency: (data) => api.post('/admin/test-concurrency', data),
+  getMongoStatus: () => api.get('/admin/mongo-status'),
+  seedMongoData: (data) => api.post('/admin/seed-mongodb', data),
 };
 
 export default api;

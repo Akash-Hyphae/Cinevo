@@ -7,6 +7,8 @@ import {
   createShow,
   deleteShow,
   runConcurrencyTest,
+  getMongoStatus,
+  seedMongoData,
 } from '../controllers/adminController.js';
 import { protect, adminOnly } from '../middleware/authMiddleware.js';
 
@@ -24,5 +26,9 @@ router.delete('/shows/:id', deleteShow);
 
 // Concurrency race condition test runner
 router.post('/test-concurrency', runConcurrencyTest);
+
+// MongoDB Status & Huge Dataset Seeder
+router.get('/mongo-status', getMongoStatus);
+router.post('/seed-mongodb', seedMongoData);
 
 export default router;

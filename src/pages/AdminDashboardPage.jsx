@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Plus, Film, Calendar, DollarSign, Users, Ticket, Trash2, Zap, Layers, AlertCircle } from 'lucide-react';
-import { adminAPI, moviesAPI, cinemasAPI } from '../services/api.js';
+import { Shield, Plus, Film, Calendar, DollarSign, Users, Ticket, Trash2, Zap, Layers, AlertCircle, Database, Sparkles, Server } from 'lucide-react';
+import { adminAPI } from '../services/api.js';
 import ConcurrencyTester from '../components/ConcurrencyTester.jsx';
+import MongoSeederPanel from '../components/MongoSeederPanel.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function AdminDashboardPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, quickLoginDemoAdmin } = useAuth();
   const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'movies' | 'shows' | 'concurrency'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'mongoSeeder' | 'movies' | 'concurrency'
   const [loading, setLoading] = useState(true);
+  const [loggingIn, setLoggingIn] = useState(false);
 
   // Form states for creating a movie
   const [movieForm, setMovieForm] = useState({
@@ -41,8 +43,22 @@ export default function AdminDashboardPage() {
   };
 
   useEffect(() => {
-    loadDashboardData();
-  }, []);
+    if (isAdmin) {
+      loadDashboardData();
+    }
+  }, [isAdmin]);
+
+  const handleQuickAdminLogin = async () => {
+    setLoggingIn(true);
+    try {
+      const res = await quickLoginDemoAdmin();
+      if (res.success) {
+        await loadDashboardData();
+      }
+    } finally {
+      setLoggingIn(false);
+    }
+  };
 
   const handleCreateMovie = async (e) => {
     e.preventDefault();
@@ -79,11 +95,30 @@ export default function AdminDashboardPage() {
   if (!isAdmin) {
     return (
       <div className="max-w-md mx-auto px-4 py-24 text-center">
-        <Shield className="w-12 h-12 text-violet-400 mx-auto mb-3" />
-        <h2 className="text-xl font-bold text-white mb-1">Admin Authorization Required</h2>
-        <p className="text-xs text-slate-400 mb-6">
-          Please login with an administrator account (or use Demo Admin in the login modal) to access the operations console.
+        <div className="w-16 h-16 rounded-2xl bg-violet-600/20 border border-violet-500/40 text-violet-400 flex items-center justify-center mx-auto mb-4">
+          <Shield className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl font-bold font-display text-white mb-2">Admin Authorization Required</h2>
+        <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+          Access the operations console to monitor revenue, live seat mutex locks, manage inventories, and seed huge test datasets directly to MongoDB.
         </p>
+
+        <div className="p-4 rounded-xl bg-[#121622] border border-slate-800 space-y-3">
+          <div className="text-xs text-slate-300">
+            Click below to instantly authenticate using the pre-configured Demo Admin:
+          </div>
+          <button
+            onClick={handleQuickAdminLogin}
+            disabled={loggingIn}
+            className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white font-semibold text-xs shadow-lg shadow-violet-900/40 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>{loggingIn ? 'Authenticating Admin...' : 'One-Click Login as Demo Admin'}</span>
+          </button>
+          <div className="text-[11px] text-slate-500 font-mono">
+            Credentials: admin@cinevo.com · AdminSecret123!
+          </div>
+        </div>
       </div>
     );
   }
@@ -107,16 +142,17 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-900/80 rounded-xl border border-slate-800">
+        <div className="flex items-center gap-1.5 p-1 bg-slate-900/80 rounded-xl border border-slate-800 overflow-x-auto">
           {[
             { id: 'overview', label: 'Analytics' },
+            { id: 'mongoSeeder', label: 'MongoDB Seeder' },
             { id: 'movies', label: 'Add Movie' },
             { id: 'concurrency', label: 'Race Test Engine' },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
                 activeTab === tab.id
                   ? 'bg-violet-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-white'
@@ -139,70 +175,99 @@ export default function AdminDashboardPage() {
             <div className="text-2xl font-bold font-mono text-white">
               ₹{stats.totalRevenue?.toLocaleString('en-IN') || 0}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">
-              ₹{stats.todayRevenue?.toLocaleString('en-IN') || 0} collected today
-            </div>
+            <span className="text-[11px] text-slate-500 mt-1 block">
+              Confirmed tickets sold
+            </span>
           </div>
 
           <div className="p-5 rounded-2xl bg-[#121622] border border-slate-800/80">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-              <span>Confirmed Bookings</span>
-              <Ticket className="w-4 h-4 text-violet-400" />
+              <span>Active Seat Mutex Locks</span>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
+              </span>
             </div>
-            <div className="text-2xl font-bold font-mono text-white">
-              {stats.totalBookings || 0}
-            </div>
-            <div className="text-[11px] text-slate-400 mt-1">
-              {stats.todayBookingsCount || 0} bookings today
-            </div>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-[#121622] border border-slate-800/80">
-            <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-              <span>Active Seat Locks</span>
-              <Zap className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="text-2xl font-bold font-mono text-amber-300">
+            <div className="text-2xl font-bold font-mono text-violet-400">
               {stats.activeLocksCount || 0}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">
-              5-minute temporary reservations in flight
-            </div>
+            <span className="text-[11px] text-slate-500 mt-1 block">
+              In-flight 5-minute reservations
+            </span>
           </div>
 
           <div className="p-5 rounded-2xl bg-[#121622] border border-slate-800/80">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-              <span>Movies & Shows</span>
-              <Film className="w-4 h-4 text-sky-400" />
+              <span>Scheduled Shows</span>
+              <Calendar className="w-4 h-4 text-violet-400" />
             </div>
             <div className="text-2xl font-bold font-mono text-white">
-              {stats.totalMovies} Movies / {stats.totalShows} Shows
+              {stats.totalShows || 0}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">
-              Across {stats.totalCinemas} premium venues
-            </div>
+            <span className="text-[11px] text-slate-500 mt-1 block">
+              Across {stats.totalCinemas || 0} theatres
+            </span>
           </div>
+
+          <div className="p-5 rounded-2xl bg-[#121622] border border-slate-800/80">
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+              <span>Theatrical Releases</span>
+              <Film className="w-4 h-4 text-purple-400" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-white">
+              {stats.totalMovies || 0}
+            </div>
+            <span className="text-[11px] text-slate-500 mt-1 block">
+              Now showing in cinemas
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* TAB CONTENT: MONGO SEEDER */}
+      {activeTab === 'mongoSeeder' && (
+        <div className="mt-8">
+          <MongoSeederPanel onSeeded={loadDashboardData} />
         </div>
       )}
 
       {/* TAB CONTENT: OVERVIEW */}
       {activeTab === 'overview' && stats && (
         <div className="mt-8 space-y-6">
-          <div className="p-6 rounded-2xl bg-[#121622] border border-slate-800/80">
-            <h3 className="font-display font-bold text-lg text-white mb-4">
-              Recent Transaction & Admission Stream
-            </h3>
+          {/* Quick Callout to MongoDB Seeder */}
+          <div className="p-5 rounded-2xl bg-gradient-to-r from-violet-950/40 via-slate-900 to-[#121622] border border-violet-800/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="p-2.5 rounded-xl bg-violet-600/20 text-violet-400 border border-violet-500/30 shrink-0">
+                <Database className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">
+                  MongoDB Test Dataset Seeder Available
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Populate your MongoDB database with 20+ blockbuster movies, 15 cinemas across 7 major metro cities, 45 screens with 8,640+ seats, and 500+ showtimes in one click.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveTab('mongoSeeder')}
+              className="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Open MongoDB Seeder</span>
+            </button>
+          </div>
 
-            {stats.recentBookings?.length === 0 ? (
-              <p className="text-xs text-slate-400">No bookings recorded yet.</p>
-            ) : (
+          <div className="p-6 rounded-2xl bg-[#121622] border border-slate-800/80 space-y-4">
+            <h3 className="text-sm font-semibold text-white">Recent 10 Theatrical Bookings</h3>
+            {stats.recentBookings && stats.recentBookings.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400">
+                  <thead className="border-b border-slate-800 text-[11px] font-mono uppercase text-slate-400">
                     <tr>
-                      <th className="pb-3 font-semibold">Ref ID</th>
-                      <th className="pb-3 font-semibold">Customer</th>
-                      <th className="pb-3 font-semibold">Movie & Cinema</th>
+                      <th className="pb-3 font-semibold">Reference</th>
+                      <th className="pb-3 font-semibold">Movie</th>
+                      <th className="pb-3 font-semibold">Cinema</th>
                       <th className="pb-3 font-semibold">Seats</th>
                       <th className="pb-3 font-semibold">Amount</th>
                       <th className="pb-3 font-semibold">Status</th>
@@ -210,24 +275,14 @@ export default function AdminDashboardPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-mono">
                     {stats.recentBookings.map((b) => (
-                      <tr key={b._id} className="hover:bg-slate-800/40">
-                        <td className="py-3 font-bold text-violet-300">{b.bookingReference}</td>
-                        <td className="py-3 font-sans">
-                          <div className="font-medium text-white">{b.userName}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">{b.userEmail}</div>
-                        </td>
-                        <td className="py-3 font-sans">
-                          <div className="text-white font-medium">{b.movieTitle}</div>
-                          <div className="text-[11px] text-slate-400">{b.cinemaName}</div>
-                        </td>
-                        <td className="py-3 text-violet-300">{b.seats}</td>
-                        <td className="py-3 font-bold text-white">₹{b.totalAmount}</td>
-                        <td className="py-3 font-sans">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
-                            b.bookingStatus === 'CONFIRMED'
-                              ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/80'
-                              : 'bg-red-950/80 text-red-400 border border-red-800/80'
-                          }`}>
+                      <tr key={b._id} className="hover:bg-slate-900/40 transition-colors">
+                        <td className="py-3 text-violet-400 font-semibold">{b.bookingReference}</td>
+                        <td className="py-3 font-sans text-white">{b.movieTitle}</td>
+                        <td className="py-3 font-sans text-slate-400">{b.cinemaName}</td>
+                        <td className="py-3">{b.seats}</td>
+                        <td className="py-3 text-emerald-400 font-bold">₹{b.totalAmount}</td>
+                        <td className="py-3">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
                             {b.bookingStatus}
                           </span>
                         </td>
@@ -236,6 +291,8 @@ export default function AdminDashboardPage() {
                   </tbody>
                 </table>
               </div>
+            ) : (
+              <p className="text-xs text-slate-500 py-4">No recent bookings found.</p>
             )}
           </div>
         </div>
@@ -243,21 +300,16 @@ export default function AdminDashboardPage() {
 
       {/* TAB CONTENT: ADD MOVIE */}
       {activeTab === 'movies' && (
-        <div className="mt-8 max-w-2xl mx-auto p-6 sm:p-8 rounded-2xl bg-[#121622] border border-slate-800">
-          <h3 className="font-display font-bold text-xl text-white mb-2">
-            Add New Movie to Catalog
-          </h3>
-          <p className="text-xs text-slate-400 mb-6">
-            Enter theatrical details, media posters, and audio/video formats
-          </p>
+        <div className="mt-8 max-w-2xl">
+          <form onSubmit={handleCreateMovie} className="p-6 rounded-2xl bg-[#121622] border border-slate-800/80 space-y-4 text-xs">
+            <h3 className="text-base font-semibold text-white mb-2">Publish New Release</h3>
 
-          {movieMsg && (
-            <div className="mb-6 p-3.5 rounded-xl bg-violet-950/40 border border-violet-800/60 text-violet-200 text-xs">
-              {movieMsg}
-            </div>
-          )}
+            {movieMsg && (
+              <div className="p-3 rounded-xl bg-violet-950/40 border border-violet-800 text-violet-300">
+                {movieMsg}
+              </div>
+            )}
 
-          <form onSubmit={handleCreateMovie} className="space-y-4 text-xs">
             <div>
               <label className="block text-slate-300 font-medium mb-1">Movie Title</label>
               <input
@@ -265,16 +317,27 @@ export default function AdminDashboardPage() {
                 required
                 value={movieForm.title}
                 onChange={(e) => setMovieForm({ ...movieForm, title: e.target.value })}
-                placeholder="e.g. Interstellar Odyssey"
+                placeholder="e.g. Dune: Part Two"
                 className="w-full py-2.5 px-3 rounded-xl bg-slate-900 border border-slate-800 text-white focus:outline-none focus:border-violet-500"
               />
             </div>
 
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Synopsis / Description</label>
+              <label className="block text-slate-300 font-medium mb-1">Poster Image URL</label>
+              <input
+                type="url"
+                value={movieForm.poster}
+                onChange={(e) => setMovieForm({ ...movieForm, poster: e.target.value })}
+                placeholder="https://images.unsplash.com/..."
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-900 border border-slate-800 text-white focus:outline-none focus:border-violet-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">Synopsis</label>
               <textarea
-                required
                 rows={3}
+                required
                 value={movieForm.description}
                 onChange={(e) => setMovieForm({ ...movieForm, description: e.target.value })}
                 placeholder="Gripping cinematic narrative..."
@@ -329,7 +392,7 @@ export default function AdminDashboardPage() {
 
             <button
               type="submit"
-              className="mt-4 w-full py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 text-white font-semibold shadow-lg shadow-violet-900/30 transition-all"
+              className="mt-4 w-full py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 text-white font-semibold shadow-lg shadow-violet-900/30 transition-all cursor-pointer"
             >
               Publish Movie to Theatres
             </button>

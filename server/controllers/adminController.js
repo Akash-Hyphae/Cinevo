@@ -254,3 +254,30 @@ export const runConcurrencyTest = async (req, res) => {
     detailedLogs: results,
   });
 };
+
+export const getMongoStatus = async (req, res) => {
+  const mongoose = (await import('mongoose')).default;
+  const readyState = mongoose.connection.readyState;
+  res.json({
+    success: true,
+    data: {
+      isConnected: readyState === 1,
+      readyState,
+      databaseName: mongoose.connection.name || '',
+      host: mongoose.connection.host || '',
+      hasEnvUri: Boolean(process.env.MONGO_URI),
+    },
+  });
+};
+
+export const seedMongoData = async (req, res, next) => {
+  try {
+    const { seedHugeDataToMongoDB } = await import('../services/mongoSeeder.js');
+    const { mongoUri } = req.body || {};
+    const result = await seedHugeDataToMongoDB(mongoUri);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+

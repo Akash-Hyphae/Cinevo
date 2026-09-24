@@ -20,6 +20,7 @@ const movieSchema = new mongoose.Schema(
       enum: ['UPCOMING', 'NOW_SHOWING', 'ENDED'],
       default: 'NOW_SHOWING',
     },
+    formats: [{ type: String, default: '2D' }],
   },
   { timestamps: true }
 );
