@@ -93,17 +93,40 @@ The most critical requirement of Cinevo is guaranteeing that **two users can NEV
 * `GET /api/bookings/:id` — Get ticket pass and entry QR code
 * `GET /api/bookings/my-bookings` — List user's booking history
 * `POST /api/bookings/:id/cancel` — Cancel booking and release seats
-* `POST /api/payments/create-order` — Create Razorpay order
-* `POST /api/payments/verify` — Verify signature and confirm booking
-
-### Admin & Testing Suite (`/api/admin`)
-* `GET /api/admin/stats` — Revenue, bookings, active locks, movies, and shows (Admin only)
-* `POST /api/admin/movies` — Add new theatrical release
-* `POST /api/admin/test-concurrency` — Launch concurrent requests against the same seat to prove zero collisions
+* `GET /api/payments/config` — Get active Razorpay public key and configuration
+* `POST /api/payments/create-order` — Create Razorpay order (via official Razorpay API)
+* `POST /api/payments/verify` — Cryptographically verify HMAC-SHA256 signature and confirm booking
 
 ---
 
-## 6. Running the Integration Tests
+## 6. Razorpay Integration & Full Verification
+
+Cinevo integrates the official **Razorpay Checkout modal** (`https://checkout.razorpay.com/v1/checkout.js`) with complete backend cryptographic verification:
+
+1. **Client-Side Trigger:**
+   - On the Booking Summary page, clicking **"Pay ₹... via Razorpay"** initiates order creation via `/api/payments/create-order`.
+   - The official Razorpay modal opens displaying cinema branding, movie title, seat details, and user info.
+   - Upon successful payment in the modal, Razorpay delivers `razorpay_payment_id`, `razorpay_order_id`, and `razorpay_signature`.
+
+2. **Cryptographic Server Verification:**
+   - The frontend forwards the response to `/api/payments/verify`.
+   - The server computes the expected HMAC-SHA256 signature:
+     ```javascript
+     const generatedSignature = crypto
+       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+       .update(`${orderId}|${paymentId}`)
+       .digest('hex');
+     ```
+   - Only when signatures match (and double-checked against timing-safe buffer comparisons) does the server atomically confirm the booking, mark seats as `BOOKED`, and issue the QR pass.
+   - Any signature tampering or mismatch is rejected with **HTTP 400**.
+
+3. **Configured Environment Variables:**
+   - `RAZORPAY_KEY_ID`: Your Razorpay Test Key ID (e.g. `rzp_test_...`)
+   - `RAZORPAY_KEY_SECRET`: Your Razorpay Secret Key
+
+---
+
+## 7. Running the Integration Tests
 
 To run the backend test suite verifying atomic concurrency, 5-minute TTL expiration, idempotency, and payment conversion:
 

@@ -1,32 +1,50 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ShieldCheck, Clock, ArrowLeft, CreditCard, CheckCircle2, AlertTriangle, Film, MapPin } from 'lucide-react';
+import { ShieldCheck, Clock, ArrowLeft, CreditCard, CheckCircle2, AlertTriangle, Film, MapPin, Zap, ExternalLink } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer.jsx';
 import { bookingsAPI, paymentsAPI } from '../services/api.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { openRazorpayCheckout, loadRazorpayScript } from '../utils/razorpay.js';
 
 export default function BookingSummaryPage() {
   const { bookingId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [booking, setBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('UPI'); // 'UPI' | 'CARD' | 'NET_BANKING'
   const [errorMsg, setErrorMsg] = useState('');
+  const [paymentConfig, setPaymentConfig] = useState(null);
   const [idempotencyKey] = useState(() => `idemp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`);
 
   useEffect(() => {
-    async function loadBooking() {
+    // Pre-load Razorpay checkout script in background
+    loadRazorpayScript().catch(() => {});
+
+    async function loadData() {
       setLoading(true);
       try {
-        const res = await bookingsAPI.getById(bookingId);
-        if (res.success && res.data) {
-          // If already paid, redirect to ticket directly
-          if (res.data.bookingStatus === 'CONFIRMED') {
-            navigate(`/ticket-success/${res.data._id}`, { replace: true });
+        const [bookingRes, configRes] = await Promise.allSettled([
+          bookingsAPI.getById(bookingId),
+          paymentsAPI.getConfig(),
+        ]);
+
+        if (bookingRes.status === 'fulfilled' && bookingRes.value.success) {
+          const bData = bookingRes.value.data;
+          if (bData.bookingStatus === 'CONFIRMED') {
+            navigate(`/ticket-success/${bData._id}`, { replace: true });
             return;
           }
-          setBooking(res.data);
+          setBooking(bData);
+        } else {
+          setErrorMsg('Unable to retrieve booking details.');
+        }
+
+        if (configRes.status === 'fulfilled' && configRes.value.success) {
+          setPaymentConfig(configRes.value.data);
         }
       } catch (err) {
         setErrorMsg(err.message || 'Unable to load booking details');
@@ -34,20 +52,81 @@ export default function BookingSummaryPage() {
         setLoading(false);
       }
     }
-    loadBooking();
+
+    loadData();
   }, [bookingId, navigate]);
 
-  const handlePaymentConfirm = async () => {
+  // Primary: Launch Official Razorpay Modal before payment
+  const handleRazorpayPayment = async () => {
     setPaying(true);
     setErrorMsg('');
 
     try {
-      // 1. Create Razorpay Order
+      // 1. Create Razorpay Order on server
       const orderRes = await paymentsAPI.createOrder({ bookingId });
       const orderData = orderRes.data;
 
-      // 2. Simulated / Razorpay Verification Flow
-      const mockPaymentId = `pay_${Date.now()}_${Math.random().toString(36).substr(2, 7)}`;
+      // 2. Open official Razorpay Checkout modal
+      await openRazorpayCheckout({
+        orderData,
+        booking,
+        user,
+        onSuccess: async (response) => {
+          // Razorpay returns:
+          // response.razorpay_payment_id
+          // response.razorpay_order_id
+          // response.razorpay_signature
+          setVerifying(true);
+          try {
+            const verifyRes = await paymentsAPI.verify({
+              bookingId,
+              orderId: response.razorpay_order_id || orderData.orderId,
+              paymentId: response.razorpay_payment_id,
+              signature: response.razorpay_signature,
+              idempotencyKey,
+            });
+
+            if (verifyRes.success) {
+              navigate(`/ticket-success/${bookingId}`, { replace: true });
+            } else {
+              setErrorMsg('Payment verification failed: ' + (verifyRes.message || 'Signature rejected'));
+              setPaying(false);
+              setVerifying(false);
+            }
+          } catch (verifyErr) {
+            console.error('Verification error:', verifyErr);
+            setErrorMsg(verifyErr.message || 'Cryptographic signature verification failed on backend.');
+            setPaying(false);
+            setVerifying(false);
+          }
+        },
+        onError: (err) => {
+          console.warn('Razorpay checkout error:', err);
+          setErrorMsg(err.description || err.message || 'Payment was not completed.');
+          setPaying(false);
+        },
+        onDismiss: () => {
+          setPaying(false);
+        },
+      });
+    } catch (err) {
+      console.error('Payment launch error:', err);
+      setErrorMsg(err.message || 'Failed to initiate Razorpay checkout.');
+      setPaying(false);
+    }
+  };
+
+  // Fallback simulator for automated testing / sandbox sandbox verification
+  const handleSimulatedPayment = async () => {
+    setPaying(true);
+    setVerifying(true);
+    setErrorMsg('');
+
+    try {
+      const orderRes = await paymentsAPI.createOrder({ bookingId });
+      const orderData = orderRes.data;
+
+      const mockPaymentId = `pay_sim_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const mockSignature = 'valid_sandbox_signature';
 
       const verifyRes = await paymentsAPI.verify({
@@ -60,11 +139,14 @@ export default function BookingSummaryPage() {
 
       if (verifyRes.success) {
         navigate(`/ticket-success/${bookingId}`, { replace: true });
+      } else {
+        setErrorMsg('Simulated verification failed');
       }
     } catch (err) {
-      setErrorMsg(err.message || 'Payment processing failed. Please try again.');
+      setErrorMsg(err.message || 'Simulated verification failed');
     } finally {
       setPaying(false);
+      setVerifying(false);
     }
   };
 
@@ -130,7 +212,27 @@ export default function BookingSummaryPage() {
         </div>
       )}
 
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-8">
+      {/* Razorpay Gateway Status Pill */}
+      <div className="mt-6 p-4 rounded-xl bg-gradient-to-r from-violet-950/40 to-slate-900 border border-violet-800/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+          <div>
+            <span className="font-semibold text-white">Razorpay Payment Gateway</span>
+            <span className="text-slate-400 ml-2">
+              (HMAC-SHA256 Cryptographic Verification)
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] font-mono text-slate-300 bg-slate-900/80 px-2.5 py-1 rounded-md border border-slate-700/60">
+          <span className="text-violet-400 font-semibold">Key:</span>
+          <span>{paymentConfig?.keyId || 'rzp_test_configured'}</span>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-8">
         {/* Left Column: Movie & Cinema Details */}
         <div className="md:col-span-2 space-y-6">
           {/* Movie card */}
@@ -162,11 +264,11 @@ export default function BookingSummaryPage() {
 
           {/* Payment Method Selector */}
           <div className="p-6 rounded-2xl bg-[#121622] border border-slate-800/80 space-y-4">
-            <h3 className="text-sm font-semibold text-white">Select Payment Mode</h3>
+            <h3 className="text-sm font-semibold text-white">Preferred Payment Channel</h3>
             <div className="grid grid-cols-3 gap-3">
               {[
                 { id: 'UPI', label: 'UPI / QR Code' },
-                { id: 'CARD', label: 'Debit / Credit Card' },
+                { id: 'CARD', label: 'Cards (Visa/Mastercard)' },
                 { id: 'NET_BANKING', label: 'Net Banking' },
               ].map((m) => (
                 <button
@@ -186,7 +288,7 @@ export default function BookingSummaryPage() {
             <div className="p-3.5 rounded-xl bg-violet-950/20 border border-violet-800/30 text-xs text-slate-300 flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-violet-400 shrink-0" />
               <span>
-                Razorpay 256-Bit SSL Sandbox Active · Instant verification with zero double-charge guarantee.
+                Razorpay Checkout modal will open before payment authorization. Verified with 256-Bit SSL encryption.
               </span>
             </div>
           </div>
@@ -232,17 +334,35 @@ export default function BookingSummaryPage() {
             </div>
           </div>
 
+          {/* Primary Razorpay Modal Action Button */}
           <button
-            onClick={handlePaymentConfirm}
-            disabled={paying}
-            className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white font-semibold text-sm shadow-lg shadow-violet-900/40 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+            onClick={handleRazorpayPayment}
+            disabled={paying || verifying}
+            className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white font-semibold text-sm shadow-lg shadow-violet-900/40 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
           >
             <CreditCard className="w-4 h-4" />
-            <span>{paying ? 'Authorizing Payment...' : `Pay ₹${booking.totalAmount}`}</span>
+            <span>
+              {verifying
+                ? 'Verifying Signature...'
+                : paying
+                ? 'Opening Razorpay...'
+                : `Pay ₹${booking.totalAmount} via Razorpay`}
+            </span>
+          </button>
+
+          {/* Quick Sandbox Bypass button for developer convenience */}
+          <button
+            type="button"
+            onClick={handleSimulatedPayment}
+            disabled={paying || verifying}
+            className="w-full py-2 px-3 rounded-lg bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+          >
+            <Zap className="w-3.5 h-3.5 text-violet-400" />
+            <span>Instant Sandbox Fast Verification (Test Mode)</span>
           </button>
 
           <p className="text-[11px] text-slate-500 text-center leading-tight">
-            By clicking Pay, you agree to Cinevo terms and conditions. Cancellation available up to 2 hours before showtime.
+            Clicking will open the Razorpay payment modal with test credentials. Signature is validated server-side before booking confirmation.
           </p>
         </div>
       </div>

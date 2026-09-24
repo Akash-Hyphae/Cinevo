@@ -8,8 +8,8 @@ export const config = {
   jwtExpiresIn: '7d',
   lockDurationMs: 5 * 60 * 1000, // 5 minutes exactly
   emailVerificationExpiresMs: 30 * 60 * 1000, // 30 minutes
-  razorpayKeyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_cinevo_sandbox_key',
-  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || 'cinevo_secret_sandbox_signature_token',
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.RAZORPAY_TEST_KEY_ID || 'rzp_test_cinevo_sandbox_key',
+  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_SECRET || 'cinevo_secret_sandbox_signature_token',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
   isProduction: process.env.NODE_ENV === 'production',
 };

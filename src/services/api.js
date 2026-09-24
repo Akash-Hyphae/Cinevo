@@ -1,7 +1,8 @@
+// src/services/api.js
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -74,6 +75,7 @@ export const bookingsAPI = {
 };
 
 export const paymentsAPI = {
+  getConfig: () => api.get('/payments/config'),
   createOrder: (data) => api.post('/payments/create-order', data),
   verify: (data) => api.post('/payments/verify', data),
 };

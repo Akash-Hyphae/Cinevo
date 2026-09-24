@@ -1,6 +1,18 @@
 import paymentService from '../services/paymentService.js';
 import dataStore from '../db/dataStore.js';
 
+export const getPaymentConfig = async (req, res, next) => {
+  try {
+    const configData = paymentService.getConfig();
+    res.json({
+      success: true,
+      data: configData,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createPaymentOrder = async (req, res, next) => {
   try {
     const { bookingId } = req.body;
@@ -35,11 +47,12 @@ export const createPaymentOrder = async (req, res, next) => {
       success: true,
       data: {
         orderId: order.id,
-        amount: order.amount,
+        amount: order.amount, // in paise
         currency: order.currency,
         keyId: order.keyId,
         bookingReference: booking.bookingReference,
         totalAmount: booking.totalAmount,
+        isOfficialRazorpay: order.isOfficialRazorpay,
       },
     });
   } catch (error) {
@@ -54,21 +67,28 @@ export const verifyPayment = async (req, res, next) => {
     if (!bookingId || !paymentId) {
       return res.status(400).json({
         success: false,
-        message: 'Missing payment verification parameters',
+        message: 'Missing payment verification parameters (bookingId or paymentId).',
       });
     }
 
-    // Verify signature
+    if (!signature) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing payment signature for verification.',
+      });
+    }
+
+    // Cryptographic signature verification
     const isValid = paymentService.verifySignature({
       orderId,
       paymentId,
-      signature: signature || 'valid_sandbox_signature',
+      signature,
     });
 
     if (!isValid) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid payment signature. Transaction rejected.',
+        message: 'Cryptographic signature verification failed. Transaction rejected.',
       });
     }
 
@@ -83,7 +103,7 @@ export const verifyPayment = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: 'Payment verified and booking confirmed!',
+      message: 'Payment cryptographically verified and booking confirmed!',
       data: confirmedBooking,
     });
   } catch (error) {

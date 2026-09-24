@@ -138,7 +138,42 @@ async function runTests() {
   assert.strictEqual(finalSeatState.status, 'BOOKED', 'Confirmed seat must have BOOKED state');
   console.log('✅ Test 5 Passed: Payment confirmed and seats permanently marked as BOOKED.\n');
 
-  console.log('🎉 ALL 5 INTEGRATION TESTS PASSED SUCCESSFULLY!');
+  // Test 6: Razorpay HMAC-SHA256 Full Cryptographic Signature Verification
+  console.log('Test 6: Razorpay Full Cryptographic Signature Verification...');
+  const paymentService = (await import('../services/paymentService.js')).default;
+  
+  const testOrder = await paymentService.createOrder({
+    bookingId: booking1._id,
+    amount: booking1.totalAmount,
+    currency: 'INR',
+    receipt: booking1.bookingReference,
+  });
+
+  assert.ok(testOrder.id, 'Razorpay order must contain order id');
+  assert.strictEqual(testOrder.amount, Math.round(booking1.totalAmount * 100));
+
+  const testPaymentId = 'pay_live_test_789456';
+  const authenticSignature = paymentService.generateTestSignature(testOrder.id, testPaymentId);
+
+  // Verify authentic signature passes
+  const validCheck = paymentService.verifySignature({
+    orderId: testOrder.id,
+    paymentId: testPaymentId,
+    signature: authenticSignature,
+  });
+  assert.strictEqual(validCheck, true, 'Cryptographically authentic signature must pass verification');
+
+  // Verify tampered signature fails
+  const tamperedCheck = paymentService.verifySignature({
+    orderId: testOrder.id,
+    paymentId: testPaymentId,
+    signature: 'tampered_fake_signature_hash_000000',
+  });
+  assert.strictEqual(tamperedCheck, false, 'Tampered signature must be rejected');
+
+  console.log('✅ Test 6 Passed: Razorpay HMAC-SHA256 cryptographic verification passed.\n');
+
+  console.log('🎉 ALL 6 INTEGRATION TESTS PASSED SUCCESSFULLY!');
 }
 
 runTests().catch((err) => {
